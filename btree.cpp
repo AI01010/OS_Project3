@@ -53,10 +53,10 @@ int main()
             case 2:
                 std::cout << "Enter key to insert: ";
                 std::cin >> key;
-                if (tree.search(key) != nullptr)
-                    std::cout << "Key " << key << " found in the tree.\n";
+                if (tree.insert(key) != nullptr)
+                    std::cout << "Key " << key << " inserted in the tree.\n";
                 else
-                    std::cout << "Key " << key << " not found.\n";
+                    std::cout << "Key " << key << " not inserted.\n";
                 break;
             case 3:
                 std::cout << "Searching a tree:";
