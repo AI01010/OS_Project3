@@ -45,13 +45,13 @@ int main()
         switch (option) 
         {
             case 1:
-                std::cout << "Enter key to insert: ";
+                std::cout << "Create a b-tree: ";
                 std::cin >> key;
-                tree.insert(key);
-                std::cout << "Key " << key << " inserted.\n";
+                tree.create(key);
+                std::cout << "Tree created.\n";
                 break;
             case 2:
-                std::cout << "Enter key to search: ";
+                std::cout << "Enter key to insert: ";
                 std::cin >> key;
                 if (tree.search(key) != nullptr)
                     std::cout << "Key " << key << " found in the tree.\n";
@@ -59,8 +59,8 @@ int main()
                     std::cout << "Key " << key << " not found.\n";
                 break;
             case 3:
-                std::cout << "Traversing tree:";
-                tree.traverse();
+                std::cout << "Searching a tree:";
+                tree.search();
                 std::cout << "\n";
                 break;
             case 4:
