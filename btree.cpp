@@ -1,21 +1,76 @@
-// b tree code in c++
+/**
+ * CS 4348.501 
+ * Ashraful Islam
+ * OS Project 3
+ * 
+ * B-Tree implementation in C++
+ * Interactive program that creates and manages index files: create, insert, and search operations.
+ *
+ * B-Tree properties (for minimum degree t):
+ * 1. Every node has at most 2t - 1 keys and at least t - 1 keys.
+ * 2. Every internal node (except root) has at least t children.
+ * 3. All leaves are at the same level.
+ */
 
 #include <iostream>
+#include <vector>
+#include <cstdlib>
 
-
-int main () 
+class BTreeNode 
 {
-    std::cout << "Hello, World!" << std::endl;
-    return 0;
+    //node code
 }
 
-// B-Tree implementation in C++
-// B-Tree is a self-balancing tree data structure that maintains sorted data and allows searches, sequential access, insertions, and deletions in logarithmic time.
-// It is a generalization of a binary search tree in that a node can have more than two children. B-Trees are commonly used in databases and file systems.
-// The B-Tree is defined by the following properties:
-// 1. Every node has at most 2t - 1 keys and at least t - 1 keys, where t is the minimum degree of the tree.
-// 2. Every internal node has at least t children. The root has at least two children if it is not a leaf node.
-// 3. All leaves are at the same level, which means that the tree is balanced.
-// 4. A non-leaf node with k keys has k + 1 children.
-// 5. The keys in each node are sorted in non-decreasing order.
-// 6. The keys in the child nodes are in the range of the keys in the parent node. For example, if a node has keys k1, k2, ..., kn, then the keys in the left child are less than k1, the keys in the right child are greater than kn, and the keys in between are between k1 and kn.
+class BTree 
+{
+    BTreeNode *root; // Pointer to root node
+}
+
+int main() 
+{
+    BTree tree(t); // make B tree
+    int option, key;
+    bool running = true;
+
+    std::cout << "B-Tree Implementation\n";
+    while (running) 
+    {
+        std::cout << "\nB-Tree Operations:\n";
+        std::cout << "1. Create b-tree\n";
+        std::cout << "2. Insert key\n";
+        std::cout << "3. Search tree\n";
+        std::cout << "4. Exit\n";
+        std::cout << "Select an option: ";
+        std::cin >> option;
+        switch (option) 
+        {
+            case 1:
+                std::cout << "Enter key to insert: ";
+                std::cin >> key;
+                tree.insert(key);
+                std::cout << "Key " << key << " inserted.\n";
+                break;
+            case 2:
+                std::cout << "Enter key to search: ";
+                std::cin >> key;
+                if (tree.search(key) != nullptr)
+                    std::cout << "Key " << key << " found in the tree.\n";
+                else
+                    std::cout << "Key " << key << " not found.\n";
+                break;
+            case 3:
+                std::cout << "Traversing tree:";
+                tree.traverse();
+                std::cout << "\n";
+                break;
+            case 4:
+                running = false;
+                break;
+            default:
+                std::cout << "Invalid option. Try again.\n";
+                break;
+        }
+    }
+    std::cout << "Exiting program.\n";
+    return 0;
+}

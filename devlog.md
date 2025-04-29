@@ -6,3 +6,11 @@ Added devlog, readme, and banker files
 began coding, add notes
 
 ## 04.29.2025 17:00 CodingSession::END
+
+## 04.29.2025 17:22 CodingSession::BEGIN
+
+started implementation of the B-Tree (create, insert, search) in btree.cpp
+made menu for creat, insert, search
+
+## 04.29.2025 17:41 CodingSession::END
+
