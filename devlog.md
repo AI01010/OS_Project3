@@ -21,5 +21,18 @@ fix logic
 
 ## 05.05.2025 12:32 CodingSession::END
 
+## 05.05.2025 22:54 CodingSession::BEGIN
+
+updates to code, add index files handling and csv handling
+
+## 05.06.2025 12:42 CodingSession::END
+
+## 05.06.2025 11:45 CodingSession::BEGIN
+
+updates to code, impliment big endian check code 
+
+## 05.06.2025 14:01 CodingSession::END
+
+NOTES: fix logic
 
 

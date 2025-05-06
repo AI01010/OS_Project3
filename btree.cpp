@@ -13,261 +13,355 @@
  */
 
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <vector>
+#include <cstdint>
+#include <cstring>
 #include <cstdlib>
 
+const int BLOCK_SIZE = 512;
+const int MIN_DEGREE = 10; // max keys: 19, children: 20
 
-// Minimum degree (defines the range for number of keys)
-const int t = 3;
-
-
-class BTreeNode 
+int is_big_endian()
 {
-    public:
-    int *keys;       // An array of keys
-    int t;           // Minimum degree (defines the range for number of keys)
-    BTreeNode **C;   // An array of child pointers
-    int n;           // Current number of keys
-    bool leaf;       // Is true when node is leaf. Otherwise false
+    int x = 1;
+    return ((uint8_t *)&x)[0] != 1;
+}
 
-    BTreeNode(int _t, bool _leaf) // Constructor to initialize the node
+uint64_t reverse_bytes(uint64_t num)
+{
+    uint8_t dest[sizeof(uint64_t)];
+    uint8_t *src = (uint8_t *)&num;
+    for (int i = 0; i < (int)sizeof(uint64_t); i++)
     {
-        t = _t;
-        leaf = _leaf;
-        n = 0;
-        keys = new int[2 * t - 1];
-        C = new BTreeNode*[2 * t];
+        dest[i] = src[sizeof(uint64_t) - i - 1];
     }
+    uint64_t rev;
+    memcpy(&rev, dest, sizeof(uint64_t));
+    return rev;
+}
 
-    ~BTreeNode() // Destructor to free memory
+uint64_t to_big_endian(uint64_t num)
+{
+    if (is_big_endian())
     {
-        delete[] keys;
-        for (int i = 0; i < n+1; i++) 
-        {
-            delete C[i];
-        }
-        delete[] C;
+        return num;
     }
-
-    // A function to traverse all nodes in a subtree rooted with this node.
-    void traverse() 
+    else
     {
-        int i;
-        for (i = 0; i < n; i++) 
-        {
-            // If this is not leaf, then before printing key[i],
-            // traverse the subtree rooted with child C[i].
-            if (!leaf)
-            {
-                C[i]->traverse();
-            }    
-            std::cout << " " << keys[i];
-        }
-        // Print the subtree rooted with last child
-        if (!leaf)
-        {
-            C[i]->traverse();
-        }
+        return reverse_bytes(num);
     }
+}
 
-    // A function to search a key in subtree rooted with this node.
-    BTreeNode* search(int k) 
+uint64_t from_big_endian(uint64_t num)
+{
+    if (is_big_endian())
     {
-        int i = 0;
-        while (i < n && k > keys[i])
-        {
-            i++;
-        }   
-        if (i < n && keys[i] == k)
-        {
-            return this;
-        }
-        if (leaf)
-        {
-            return nullptr;
-        }
-        return C[i]->search(k);
+        return num;
     }
-
-    // A function to insert a new key in the subtree rooted with this node.
-    // The node must be non-full when this function is called.
-    void insertNonFull(int k) 
+    else
     {
-        int i = n - 1;
-        if (leaf) 
-        {
-            // Find the location of new key to be inserted and shift keys greater than k one space ahead.
-            while (i >= 0 && keys[i] > k) 
-            {
-                keys[i + 1] = keys[i];
-                i--;
-            }
-            keys[i + 1] = k;
-            n = n + 1;
-        }
-        else 
-        {
-            // Find the child that is going to have the new key
-            while (i >= 0 && keys[i] > k)
-            {
-                i--;
-            }
-            i++;
-            // See if the found child is full
-            if (C[i]->n == 2 * t - 1) 
-            {
-                splitChild(i, C[i]);
-                if (keys[i] < k)
-                {
-                    i++;
-                }
-            }
-            C[i]->insertNonFull(k);
-        }
+        return reverse_bytes(num);
     }
+}
 
-    // A utility function to split the child y of this node.
-    // Note that y must be full when this function is called.
-    void splitChild(int i, BTreeNode *y) 
-    {
-        // Create a new node which will store (t-1) keys of y
-        BTreeNode *z = new BTreeNode(y->t, y->leaf);
-        z->n = t - 1;
-
-        for (int j = 0; j < t - 1; j++)
-        {
-            z->keys[j] = y->keys[j + t];
-        }
-        if (!y->leaf) 
-        {
-            for (int j = 0; j < t; j++)
-                z->C[j] = y->C[j + t];
-        }
-        y->n = t - 1;
-
-        // Create space for new child
-        for (int j = n; j >= i + 1; j--)
-        {    
-            C[j + 1] = C[j];
-        }
-        // Link new child to this node
-        C[i + 1] = z;
-
-        // Move a key from y to this node
-        for (int j = n - 1; j >= i; j--)
-        {
-            keys[j + 1] = keys[j];
-        }
-        keys[i] = y->keys[t - 1];
-        n = n + 1;
-    }
+struct btree_header
+{
+    char magic[8];             // "4348PRJ3"
+    uint64_t root_block;       // 0 if empty
+    uint64_t next_block;       // next free block
+    char unused[BLOCK_SIZE - 8 - 8 - 8];
 };
 
-class BTree 
+struct btree_node_disk
 {
-    public:
-    BTreeNode *root; // Pointer to root node
-    int t;         // Minimum degree
-
-    BTree(int _t)
-    {
-        root = nullptr;
-        t = _t;
-    }
-
-    // Function to traverse the tree
-    void traverse() 
-    {
-        if (root != nullptr)
-            root->traverse();
-    }
-
-    // Function to search a key in this tree
-    BTreeNode* search(int k) 
-    {
-        return (root == nullptr) ? nullptr : root->search(k);
-    }
-
-    // The main function that inserts a new key in this B-Tree
-    void insert(int k) 
-    {
-        if (root == nullptr) 
-        {
-            root = new BTreeNode(t, true);
-            root->keys[0] = k;
-            root->n = 1;
-        }
-        else 
-        {
-            if (root->n == 2 * t - 1) 
-            {
-                BTreeNode *s = new BTreeNode(t, false);
-                s->C[0] = root;
-                s->splitChild(0, root);
-
-                int i = 0;
-                if (s->keys[0] < k)
-                    i++;
-                s->C[i]->insertNonFull(k);
-                root = s;
-            }
-            else 
-            {
-                root->insertNonFull(k);
-            }
-        }
-    }
+    uint64_t block_id;         // node id
+    uint64_t parent_block;     // 0 if root
+    uint64_t num_keys;         // key count
+    uint64_t keys[19];         // keys
+    uint64_t values[19];       // values
+    uint64_t children[20];     // child ids (0 if leaf)
+    char unused[BLOCK_SIZE - 8 * (1 + 1 + 1 + 19 + 19 + 20)];
 };
 
-
-
-int main() 
+bool read_header(std::fstream &fs, btree_header &hdr)
 {
-    BTree tree(t); // make B tree
-    int option, key;
-    bool running = true;
+    fs.seekg(0, std::ios::beg);
+    fs.read(reinterpret_cast<char *>(&hdr), sizeof(btree_header));
+    return fs.gcount() == sizeof(btree_header);
+}
 
-    std::cout << "B-Tree Implementation\n";
-    while (running) 
+bool write_header(std::fstream &fs, const btree_header &hdr)
+{
+    fs.seekp(0, std::ios::beg);
+    fs.write(reinterpret_cast<const char *>(&hdr), sizeof(btree_header));
+    return fs.good();
+}
+
+bool read_node(std::fstream &fs, uint64_t block, btree_node_disk &node)
+{
+    fs.seekg(block * BLOCK_SIZE, std::ios::beg);
+    fs.read(reinterpret_cast<char *>(&node), sizeof(btree_node_disk));
+    return fs.gcount() == sizeof(btree_node_disk);
+}
+
+bool write_node(std::fstream &fs, const btree_node_disk &node)
+{
+    fs.seekp(node.block_id * BLOCK_SIZE, std::ios::beg);
+    fs.write(reinterpret_cast<const char *>(&node), sizeof(btree_node_disk));
+    return fs.good();
+}
+
+void create_index(const std::string &idx_file)
+{
+    std::ifstream in_fs(idx_file, std::ios::binary);
+    if (in_fs.good())
     {
-        std::cout << "\nB-Tree Operations:\n";
-        std::cout << "1. Create b-tree\n";
-        std::cout << "2. Insert key\n";
-        std::cout << "3. Search tree\n";
-        std::cout << "4. Exit\n";
-        std::cout << "Select an option: ";
-        std::cin >> option;
-        switch (option) 
+        std::cerr << "Error: File exists.\n";
+        exit(EXIT_FAILURE);
+    }
+    in_fs.close();
+
+    std::fstream out_fs(idx_file, std::ios::out | std::ios::binary);
+    if (!out_fs.is_open())
+    {
+        std::cerr << "Error: Cannot create file.\n";
+        exit(EXIT_FAILURE);
+    }
+    btree_header hdr;
+    memcpy(hdr.magic, "4348PRJ3", 8);
+    hdr.root_block = 0;
+    hdr.next_block = 1;
+    memset(hdr.unused, 0, sizeof(hdr.unused));
+    if (!write_header(out_fs, hdr))
+    {
+        std::cerr << "Error: Write header failed.\n";
+        exit(EXIT_FAILURE);
+    }
+    out_fs.seekp(BLOCK_SIZE - 1, std::ios::beg);
+    out_fs.put('\0');
+    out_fs.close();
+    std::cout << "Index '" << idx_file << "' created.\n";
+}
+
+void insert_key(const std::string &idx_file, uint64_t key, uint64_t value)
+{
+    std::fstream fs(idx_file, std::ios::in | std::ios::out | std::ios::binary);
+    if (!fs.is_open())
+    {
+        std::cerr << "Error: Cannot open file.\n";
+        exit(EXIT_FAILURE);
+    }
+    btree_header hdr;
+    if (!read_header(fs, hdr))
+    {
+        std::cerr << "Error: Invalid index.\n";
+        exit(EXIT_FAILURE);
+    }
+    if (strncmp(hdr.magic, "4348PRJ3", 8) != 0)
+    {
+        std::cerr << "Error: Bad magic number.\n";
+        exit(EXIT_FAILURE);
+    }
+    // Load up to 3 nodes for insertion (stub).
+    std::cout << "Insert key " << key << " value " << value << " (stub).\n";
+    fs.close();
+}
+
+void search_key(const std::string &idx_file, uint64_t key)
+{
+    std::fstream fs(idx_file, std::ios::in | std::ios::binary);
+    if (!fs.is_open())
+    {
+        std::cerr << "Error: Cannot open file.\n";
+        exit(EXIT_FAILURE);
+    }
+    btree_header hdr;
+    if (!read_header(fs, hdr))
+    {
+        std::cerr << "Error: Invalid index.\n";
+        exit(EXIT_FAILURE);
+    }
+    if (strncmp(hdr.magic, "4348PRJ3", 8) != 0)
+    {
+        std::cerr << "Error: Bad magic number.\n";
+        exit(EXIT_FAILURE);
+    }
+    // Search stub.
+    std::cout << "Search key " << key << " (stub).\n";
+    fs.close();
+}
+
+void load_csv(const std::string &idx_file, const std::string &csv_file)
+{
+    std::fstream fs(idx_file, std::ios::in | std::ios::out | std::ios::binary);
+    if (!fs.is_open())
+    {
+        std::cerr << "Error: Cannot open index.\n";
+        exit(EXIT_FAILURE);
+    }
+    btree_header hdr;
+    if (!read_header(fs, hdr))
+    {
+        std::cerr << "Error: Invalid index.\n";
+        exit(EXIT_FAILURE);
+    }
+    if (strncmp(hdr.magic, "4348PRJ3", 8) != 0)
+    {
+        std::cerr << "Error: Bad magic number.\n";
+        exit(EXIT_FAILURE);
+    }
+    fs.close();
+
+    std::ifstream csv_fs(csv_file);
+    if (!csv_fs.is_open())
+    {
+        std::cerr << "Error: Cannot open CSV.\n";
+        exit(EXIT_FAILURE);
+    }
+    std::string line;
+    while (std::getline(csv_fs, line))
+    {
+        std::istringstream iss(line);
+        std::string key_str, val_str;
+        if (std::getline(iss, key_str, ',') && std::getline(iss, val_str))
         {
-            case 1:
-                std::cout << "Create a b-tree: ";
-                std::cin >> key;
-                std::cout << "Tree already initialized.\n";
-                break;
-            case 2:
-                std::cout << "Enter key to insert: ";
-                std::cin >> key;
-                tree.insert(key);
-                std::cout << "Key " << key << " inserted in the tree.\n";
-                break;
-            case 3:
-                std::cout << "Enter key to search: ";
-                std::cin >> key;
-                BTreeNode* result = tree.search(key);
-                if (result != nullptr)
-                    std::cout << "Key " << key << " found in the tree.\n";
-                else
-                    std::cout << "Key " << key << " not found in the tree.\n";
-                std::cout << "\n";
-                break;
-            case 4:
-                running = false;
-                break;
-            default:
-                std::cout << "Invalid option. Try again.\n";
-                break;
+            uint64_t key_val = std::stoull(key_str);
+            uint64_t val_num = std::stoull(val_str);
+            insert_key(idx_file, key_val, val_num);
         }
     }
-    std::cout << "Exiting program.\n";
+    csv_fs.close();
+}
+
+void print_index(const std::string &idx_file)
+{
+    std::ifstream in_fs(idx_file, std::ios::binary);
+    if (!in_fs.is_open())
+    {
+        std::cerr << "Error: Cannot open file.\n";
+        exit(EXIT_FAILURE);
+    }
+    btree_header hdr;
+    in_fs.read(reinterpret_cast<char *>(&hdr), sizeof(btree_header));
+    if (strncmp(hdr.magic, "4348PRJ3", 8) != 0)
+    {
+        std::cerr << "Error: Bad magic.\n";
+        exit(EXIT_FAILURE);
+    }
+    // Print stub.
+    std::cout << "Print index (stub).\n";
+    in_fs.close();
+}
+
+void extract_index(const std::string &idx_file, const std::string &out_csv)
+{
+    std::ifstream in_fs(idx_file, std::ios::binary);
+    if (!in_fs.is_open())
+    {
+        std::cerr << "Error: Cannot open index.\n";
+        exit(EXIT_FAILURE);
+    }
+    btree_header hdr;
+    in_fs.read(reinterpret_cast<char *>(&hdr), sizeof(btree_header));
+    if (strncmp(hdr.magic, "4348PRJ3", 8) != 0)
+    {
+        std::cerr << "Error: Bad magic.\n";
+        exit(EXIT_FAILURE);
+    }
+    in_fs.close();
+
+    std::ifstream out_check(out_csv);
+    if (out_check.good())
+    {
+        std::cerr << "Error: Output exists.\n";
+        exit(EXIT_FAILURE);
+    }
+    out_check.close();
+
+    std::ofstream out_fs(out_csv);
+    if (!out_fs.is_open())
+    {
+        std::cerr << "Error: Cannot create CSV.\n";
+        exit(EXIT_FAILURE);
+    }
+    out_fs << "Key,Value\n";
+    // Extraction stub.
+    out_fs << "Extraction stub.\n";
+    out_fs.close();
+    std::cout << "Extracted to " << out_csv << " (stub).\n";
+}
+
+int main(int argc, char *argv[])
+{
+    if (argc < 2)
+    {
+        std::cerr << "Usage: project3 <cmd> [args]\n";
+        exit(EXIT_FAILURE);
+    }
+    std::string cmd = argv[1];
+    if (cmd == "create")
+    {
+        if (argc != 3)
+        {
+            std::cerr << "Usage: project3 create <idx_file>\n";
+            exit(EXIT_FAILURE);
+        }
+        create_index(argv[2]);
+    }
+    else if (cmd == "insert")
+    {
+        if (argc != 5)
+        {
+            std::cerr << "Usage: project3 insert <idx_file> <key> <val>\n";
+            exit(EXIT_FAILURE);
+        }
+        uint64_t key_val = std::stoull(argv[3]);
+        uint64_t val_num = std::stoull(argv[4]);
+        insert_key(argv[2], key_val, val_num);
+    }
+    else if (cmd == "search")
+    {
+        if (argc != 4)
+        {
+            std::cerr << "Usage: project3 search <idx_file> <key>\n";
+            exit(EXIT_FAILURE);
+        }
+        uint64_t key_val = std::stoull(argv[3]);
+        search_key(argv[2], key_val);
+    }
+    else if (cmd == "load")
+    {
+        if (argc != 4)
+        {
+            std::cerr << "Usage: project3 load <idx_file> <csv_file>\n";
+            exit(EXIT_FAILURE);
+        }
+        load_csv(argv[2], argv[3]);
+    }
+    else if (cmd == "print")
+    {
+        if (argc != 3)
+        {
+            std::cerr << "Usage: project3 print <idx_file>\n";
+            exit(EXIT_FAILURE);
+        }
+        print_index(argv[2]);
+    }
+    else if (cmd == "extract")
+    {
+        if (argc != 4)
+        {
+            std::cerr << "Usage: project3 extract <idx_file> <out_csv>\n";
+            exit(EXIT_FAILURE);
+        }
+        extract_index(argv[2], argv[3]);
+    }
+    else
+    {
+        std::cerr << "Unknown cmd.\n";
+        exit(EXIT_FAILURE);
+    }
     return 0;
 }
