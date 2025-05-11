@@ -43,3 +43,13 @@ fixed insertion and spliting logic
 ## 05.11.2025 16:29 CodingSession::END
 
 NOTES: updated README.md
+
+## 05.11.2025 17:02 CodingSession::BEGIN
+
+updates to code: over hauled code to run no linux properly
+improved variable naming, big-endian handling
+used namespace std, header code
+added user interface with all 6 commands, fixed csv issue
+got it to run on wsl
+
+## 05.11.2025 18:30 CodingSession::END

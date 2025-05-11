@@ -11,790 +11,613 @@
  * 2. Every internal node (except root) has at least t children.
  * 3. All leaves are at the same level.
  */
-
+ 
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
-#include <cstring>
-#include <cstdint>
 #include <cstdlib>
+#include <cstdint>
+#include <cstring>
 #include <endian.h>  // For htobe64 and be64toh
-#include <stdint.h>
-#include <sstream>
 #include <algorithm>
+#include <stdint.h>
 
+using namespace std;
 
-const int BLOCK_SIZE = 512;
-const int B_TREE_MIN_DEGREE = 10;
-const int MAX_KEYS = 2 * B_TREE_MIN_DEGREE - 1; // 19 keys
-const int MAX_CHILDREN = MAX_KEYS + 1; // 20 children
+const int HEADER_SIZE = 512;
+const int NODE_SIZE = 512;
+const int KEYS_PER_NODE = 19;
+const int VALUES_PER_NODE = 19;
+const int CHILDREN_PER_NODE = 20;
 const std::string MAGIC_NUMBER = "4348PRJ3";
 
 // Check if system is big-endian
-bool is_bigendian() {
+bool is_bigendian()
+{
     int x = 1;
     return ((uint8_t *)&x)[0] != 1;
 }
 
 // Reverse bytes for endianness conversion if needed
-uint64_t reverse_bytes(uint64_t x) {
+uint64_t reverse_bytes(uint64_t x)
+{
     uint8_t dest[sizeof(uint64_t)];
-    uint8_t *source = (uint8_t*)&x;
-    for(int c = 0; c < sizeof(uint64_t); c++)
-        dest[c] = source[sizeof(uint64_t)-c-1];
+    uint8_t *source = (uint8_t *)&x;
+    for (int c = 0; c < sizeof(uint64_t); c++)
+    {
+        dest[c] = source[sizeof(uint64_t) - c - 1];
+    }
     return *(uint64_t *)dest;
 }
 
 // Convert integer to big-endian if needed
-uint64_t to_big_endian(uint64_t value) {
-    if (is_bigendian()) {
+uint64_t to_big_endian(uint64_t value)
+{
+    if (is_bigendian())
+    {
         return value;
-    } else {
+    }
+    else
+    {
         return reverse_bytes(value);
     }
 }
 
 // Convert from big-endian to native endianness if needed
-uint64_t from_big_endian(uint64_t value) {
-    if (is_bigendian()) {
+uint64_t from_big_endian(uint64_t value)
+{
+    if (is_bigendian())
+    {
         return value;
-    } else {
+    }
+    else
+    {
         return reverse_bytes(value);
     }
 }
 
-struct Header
+class BTree
 {
-    char magic[8];
+private:
+    std::string index_file;
     uint64_t root_id;
     uint64_t next_block_id;
 
-    Header() : root_id(0), next_block_id(1)
-    {
-        strncpy(magic, MAGIC_NUMBER.c_str(), 8);
-    }
-};
-
-struct BTreeNode
-{
-    uint64_t block_id;
-    uint64_t parent_id;
-    uint64_t num_keys;
-    uint64_t keys[MAX_KEYS];
-    uint64_t values[MAX_KEYS];
-    uint64_t children[MAX_CHILDREN];
-
-    BTreeNode() : block_id(0), parent_id(0), num_keys(0)
-    {
-        std::fill(keys, keys + MAX_KEYS, 0);
-        std::fill(values, values + MAX_KEYS, 0);
-        std::fill(children, children + MAX_CHILDREN, 0);
-    }
-
-    bool isLeaf() const
-    {
-        for (int i = 0; i < MAX_CHILDREN; i++)
-        {
-            if (children[i] != 0)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-};
-
-class BTreeManager
-{
-private:
-    std::string filename;
-    Header header;
-    // We track loaded nodes to ensure we never have more than 3 in memory
-    std::vector<BTreeNode> loaded_nodes;
-
-    void writeHeader()
-    {
-        std::fstream file(filename, std::ios::in | std::ios::out | std::ios::binary);
-        if (!file)
-        {
-            std::cerr << "Error: Cannot open index file for writing header" << std::endl;
-            return;
-        }
-
-        // Convert header values to big-endian if needed
-        Header big_endian_header = header;
-        big_endian_header.root_id = to_big_endian(header.root_id);
-        big_endian_header.next_block_id = to_big_endian(header.next_block_id);
-
-        file.seekp(0);
-        file.write(reinterpret_cast<const char *>(&big_endian_header), sizeof(Header));
-        file.close();
-    }
-
-    bool readHeader()
-    {
-        std::ifstream file(filename, std::ios::binary);
-        if (!file)
-        {
-            std::cerr << "Error: Cannot open index file for reading header" << std::endl;
-            return false;
-        }
-
-        file.read(reinterpret_cast<char *>(&header), sizeof(Header));
-
-        // Convert header values from big-endian if needed
-        header.root_id = from_big_endian(header.root_id);
-        header.next_block_id = from_big_endian(header.next_block_id);
-
-        // Verify magic number
-        if (strncmp(header.magic, MAGIC_NUMBER.c_str(), 8) != 0)
-        {
-            std::cerr << "Error: Invalid index file format" << std::endl;
-            return false;
-        }
-
-        file.close();
-        return true;
-    }
-
-    void writeNode(const BTreeNode &node)
-    {
-        std::fstream file(filename, std::ios::in | std::ios::out | std::ios::binary);
-        if (!file)
-        {
-            std::cerr << "Error: Cannot open index file for writing node" << std::endl;
-            return;
-        }
-
-        // Create a big-endian copy of the node
-        BTreeNode big_endian_node = node;
-        big_endian_node.block_id = to_big_endian(node.block_id);
-        big_endian_node.parent_id = to_big_endian(node.parent_id);
-        big_endian_node.num_keys = to_big_endian(node.num_keys);
-
-        for (int i = 0; i < MAX_KEYS; i++)
-        {
-            big_endian_node.keys[i] = to_big_endian(node.keys[i]);
-            big_endian_node.values[i] = to_big_endian(node.values[i]);
-        }
-
-        for (int i = 0; i < MAX_CHILDREN; i++)
-        {
-            big_endian_node.children[i] = to_big_endian(node.children[i]);
-        }
-
-        // Calculate position in file
-        std::streampos position = node.block_id * BLOCK_SIZE;
-        file.seekp(position);
-        file.write(reinterpret_cast<const char *>(&big_endian_node), sizeof(BTreeNode));
-        file.close();
-    }
-
-    BTreeNode readNode(uint64_t block_id)
-    {
-        // First check if the node is already loaded
-        for (const auto &node : loaded_nodes)
-        {
-            if (node.block_id == block_id)
-            {
-                return node;
-            }
-        }
-
-        // Manage loaded nodes to ensure we don't exceed 3
-        if (loaded_nodes.size() >= 3)
-        {
-            loaded_nodes.erase(loaded_nodes.begin());
-        }
-
-        std::ifstream file(filename, std::ios::binary);
-        if (!file)
-        {
-            std::cerr << "Error: Cannot open index file for reading node" << std::endl;
-            return BTreeNode();
-        }
-
-        BTreeNode node;
-        std::streampos position = block_id * BLOCK_SIZE;
-        file.seekg(position);
-        file.read(reinterpret_cast<char *>(&node), sizeof(BTreeNode));
-
-        // Convert from big-endian if needed
-        node.block_id = from_big_endian(node.block_id);
-        node.parent_id = from_big_endian(node.parent_id);
-        node.num_keys = from_big_endian(node.num_keys);
-
-        for (int i = 0; i < MAX_KEYS; i++)
-        {
-            node.keys[i] = from_big_endian(node.keys[i]);
-            node.values[i] = from_big_endian(node.values[i]);
-        }
-
-        for (int i = 0; i < MAX_CHILDREN; i++)
-        {
-            node.children[i] = from_big_endian(node.children[i]);
-        }
-
-        file.close();
-
-        // Add to loaded nodes
-        loaded_nodes.push_back(node);
-
-        return node;
-    }
-
-    uint64_t createNewNode()
-    {
-        BTreeNode node;
-        node.block_id = header.next_block_id;
-        header.next_block_id++;
-        writeNode(node);
-        writeHeader();
-        return node.block_id;
-    }
-
-    void createRootNode()
-    {
-        BTreeNode root;
-        root.block_id = header.next_block_id;
-        header.root_id = root.block_id;
-        header.next_block_id++;
-        writeNode(root);
-        writeHeader();
-    }
-
-    int findInsertPosition(const BTreeNode &node, uint64_t key)
-    {
-        int i = 0;
-        while (i < node.num_keys && key > node.keys[i])
-        {
-            i++;
-        }
-        return i;
-    }
-
-    void splitChild(uint64_t parent_block_id, int child_index)
-    {
-        BTreeNode parent = readNode(parent_block_id);
-        uint64_t child_block_id = parent.children[child_index];
-        BTreeNode child = readNode(child_block_id);
-
-        // Create a new node for the right half of the child
-        uint64_t new_node_id = createNewNode();
-        BTreeNode new_node = readNode(new_node_id);
-        new_node.parent_id = parent_block_id;
-
-        // Set the new node as a child of the parent
-        for (int i = parent.num_keys; i > child_index; i--)
-        {
-            parent.children[i + 1] = parent.children[i];
-        }
-        parent.children[child_index + 1] = new_node_id;
-
-        // Move median key to the parent
-        int median = B_TREE_MIN_DEGREE - 1;
-        for (int i = parent.num_keys; i > child_index; i--)
-        {
-            parent.keys[i] = parent.keys[i - 1];
-            parent.values[i] = parent.values[i - 1];
-        }
-        parent.keys[child_index] = child.keys[median];
-        parent.values[child_index] = child.values[median];
-        parent.num_keys++;
-
-        // Move right half of child keys to the new node
-        new_node.num_keys = B_TREE_MIN_DEGREE - 1;
-        for (int i = 0; i < new_node.num_keys; i++)
-        {
-            new_node.keys[i] = child.keys[i + B_TREE_MIN_DEGREE];
-            new_node.values[i] = child.values[i + B_TREE_MIN_DEGREE];
-        }
-
-        // Move right half of child's children to the new node
-        if (!child.isLeaf())
-        {
-            for (int i = 0; i <= new_node.num_keys; i++)
-            {
-                new_node.children[i] = child.children[i + B_TREE_MIN_DEGREE];
-                // Update parent pointers of the moved children
-                BTreeNode moved_child = readNode(new_node.children[i]);
-                moved_child.parent_id = new_node_id;
-                writeNode(moved_child);
-            }
-        }
-
-        // Update child to only contain left half
-        child.num_keys = B_TREE_MIN_DEGREE - 1;
-
-        // Write all modified nodes back to disk
-        writeNode(parent);
-        writeNode(child);
-        writeNode(new_node);
-    }
-
-    void insertNonFull(uint64_t block_id, uint64_t key, uint64_t value)
-    {
-        BTreeNode node = readNode(block_id);
-
-        // If this is a leaf node, insert the key here
-        if (node.isLeaf())
-        {
-            int i = node.num_keys - 1;
-            while (i >= 0 && key < node.keys[i])
-            {
-                node.keys[i + 1] = node.keys[i];
-                node.values[i + 1] = node.values[i];
-                i--;
-            }
-            node.keys[i + 1] = key;
-            node.values[i + 1] = value;
-            node.num_keys++;
-            writeNode(node);
-        }
-        // If this is an internal node, find the child to recurse to
-        else
-        {
-            int i = node.num_keys - 1;
-            while (i >= 0 && key < node.keys[i])
-            {
-                i--;
-            }
-            i++;
-
-            BTreeNode child = readNode(node.children[i]);
-
-            // If the child is full, split it first
-            if (child.num_keys == MAX_KEYS)
-            {
-                splitChild(block_id, i);
-
-                // After splitting, the median key is in the parent
-                // Determine which child to follow
-                node = readNode(block_id);
-                if (key > node.keys[i])
-                {
-                    i++;
-                }
-            }
-            insertNonFull(node.children[i], key, value);
-        }
-    }
-
-    std::pair<bool, uint64_t> searchInNode(uint64_t block_id, uint64_t key)
-    {
-        BTreeNode node = readNode(block_id);
-        int i = 0;
-        while (i < node.num_keys && key > node.keys[i])
-        {
-            i++;
-        }
-        if (i < node.num_keys && key == node.keys[i])
-        {
-            return {true, node.values[i]};
-        }
-        if (node.isLeaf())
-        {
-            return {false, 0};
-        }
-        return searchInNode(node.children[i], key);
-    }
-
-    void traverseTree(uint64_t block_id, void (*process)(uint64_t, uint64_t))
-    {
-        if (block_id == 0)
-        {
-            return;
-        }
-
-        BTreeNode node = readNode(block_id);
-
-        // For each key in this node
-        for (int i = 0; i < node.num_keys; i++)
-        {
-            // Recurse to left child
-            if (!node.isLeaf())
-            {
-                traverseTree(node.children[i], process);
-            }
-
-            // Process current key
-            process(node.keys[i], node.values[i]);
-
-            // Recurse to rightmost child after all keys
-            if (i == node.num_keys - 1 && !node.isLeaf())
-            {
-                traverseTree(node.children[i + 1], process);
-            }
-        }
-    }
-
 public:
-    BTreeManager(const std::string &filename) : filename(filename)
+    BTree() : root_id(0), next_block_id(1)
     {
     }
 
-    bool createIndexFile()
+    bool isIndexOpen() const
     {
-        std::ifstream check_file(filename);
-        if (check_file)
-        {
-            std::cerr << "Error: File already exists" << std::endl;
-            check_file.close();
-            return false;
-        }
-
-        std::ofstream file(filename, std::ios::binary);
-        if (!file)
-        {
-            std::cerr << "Error: Cannot create index file" << std::endl;
-            return false;
-        }
-
-        // Initialize header
-        Header header;
-        Header big_endian_header = header;
-        big_endian_header.root_id = to_big_endian(header.root_id);
-        big_endian_header.next_block_id = to_big_endian(header.next_block_id);
-        file.write(reinterpret_cast<const char *>(&big_endian_header), sizeof(Header));
-
-        // Pad the rest of the first block with zeros
-        char padding[BLOCK_SIZE - sizeof(Header)] = {0};
-        file.write(padding, sizeof(padding));
-
-        file.close();
-
-        // Initialize class header
-        this->header = header;
-
-        return true;
+        return !index_file.empty();
     }
 
-    bool openIndexFile()
+    void create(const std::string &filename)
     {
-        if (!readHeader())
+        // If the file exists, ask for confirmation to overwrite
+        ifstream infile(filename, ios::binary);
+        if (infile.good())
         {
-            return false;
-        }
-        return true;
-    }
-
-    bool insert(uint64_t key, uint64_t value)
-    {
-        // If the tree is empty, create a root node
-        if (header.root_id == 0)
-        {
-            createRootNode();
-        }
-
-        BTreeNode root = readNode(header.root_id);
-
-        // If the root is full, the tree needs to grow in height
-        if (root.num_keys == MAX_KEYS)
-        {
-            // Create a new root
-            uint64_t new_root_id = createNewNode();
-            BTreeNode new_root = readNode(new_root_id);
-
-            // Make the old root a child of the new root
-            new_root.children[0] = header.root_id;
-
-            // Update the old root's parent
-            root.parent_id = new_root_id;
-            writeNode(root);
-
-            // Set the new root in the header
-            header.root_id = new_root_id;
-            writeHeader();
-
-            // Split the old root
-            splitChild(new_root_id, 0);
-
-            // Insert the key-value pair into the new structure
-            insertNonFull(new_root_id, key, value);
-        }
-        else
-        {
-            // Insert into non-full root
-            insertNonFull(header.root_id, key, value);
-        }
-
-        return true;
-    }
-
-    std::pair<bool, uint64_t> search(uint64_t key)
-    {
-        if (header.root_id == 0)
-        {
-            return {false, 0}; // Empty tree
-        }
-
-        return searchInNode(header.root_id, key);
-    }
-
-    void print()
-    {
-        if (header.root_id == 0)
-        {
-            std::cout << "Index is empty" << std::endl;
-            return;
-        }
-
-        auto printKeyValue = [](uint64_t key, uint64_t value)
-        {
-            std::cout << key << " " << value << std::endl;
-        };
-
-        traverseTree(header.root_id, printKeyValue);
-    }
-
-    bool extract(const std::string &output_filename)
-    {
-        std::ofstream output_file(output_filename);
-        if (!output_file)
-        {
-            std::cerr << "Error: Cannot create output file" << std::endl;
-            return false;
-        }
-
-        if (header.root_id == 0)
-        {
-            output_file.close();
-            return true; // Empty index, create empty CSV
-        }
-
-        auto writeToCSV = [&output_file](uint64_t key, uint64_t value)
-        {
-            output_file << key << "," << value << std::endl;
-        };
-
-        traverseTree(header.root_id, writeToCSV);
-
-        output_file.close();
-        return true;
-    }
-
-    bool load(const std::string &input_filename)
-    {
-        std::ifstream input_file(input_filename);
-        if (!input_file)
-        {
-            std::cerr << "Error: Cannot open input file" << std::endl;
-            return false;
-        }
-
-        std::string line;
-        while (std::getline(input_file, line))
-        {
-            std::stringstream ss(line);
-            std::string key_str, value_str;
-
-            if (std::getline(ss, key_str, ',') && std::getline(ss, value_str))
+            cout << "File " << filename << " already exists. Do you want to overwrite (y/n)?: ";
+            string response;
+            getline(cin, response);
+            if (response != "y")
             {
-                try
-                {
-                    uint64_t key = std::stoull(key_str);
-                    uint64_t value = std::stoull(value_str);
-                    insert(key, value);
-                }
-                catch (const std::exception &e)
-                {
-                    std::cerr << "Error parsing line: " << line << std::endl;
-                }
+                cout << "Menu option discarded. Did not overwrite " << filename << "." << endl;
+                return;
             }
         }
 
-        input_file.close();
-        return true;
+        // Create and initialize file with header
+        ofstream f(filename, ios::binary | ios::trunc);
+        if (!f)
+        {
+            cout << "Error: Could not create file " << filename << "." << endl;
+            return;
+        }
+
+        // Write magic number
+        f.write(MAGIC_NUMBER.c_str(), MAGIC_NUMBER.size());
+
+        // Write root_id (0) and next_block_id in big-endian format
+        uint64_t r = htobe64((uint64_t)0);
+        uint64_t nb = htobe64(next_block_id);
+        f.write(reinterpret_cast<const char *>(&r), sizeof(uint64_t));
+        f.write(reinterpret_cast<const char *>(&nb), sizeof(uint64_t));
+
+        // Pad remaining header space
+        int header_written = MAGIC_NUMBER.size() + 2 * sizeof(uint64_t);
+        int remaining = HEADER_SIZE - header_written;
+        std::vector<char> padding(remaining, 0);
+        f.write(padding.data(), padding.size());
+        f.close();
+
+        index_file = filename;
+        cout << "Created index file " << filename << "." << endl;
+        // Automatically open the file
+        open(filename);
     }
-};
 
-int main(int argc, char *argv[])
-{
-    if (argc < 2)
+    void open(const std::string &filename)
     {
-        std::cerr << "Usage: " << argv[0] << " <command> [args]" << std::endl;
-        return 1;
+        ifstream f(filename, ios::binary);
+        if (!f)
+        {
+            cout << "Error: File " << filename << " does not exist." << endl;
+            return;
+        }
+        char magic_buffer[MAGIC_NUMBER.size()];
+        f.read(magic_buffer, MAGIC_NUMBER.size());
+        if (std::string(magic_buffer, MAGIC_NUMBER.size()) != MAGIC_NUMBER)
+        {
+            cout << "Error: Invalid file format." << endl;
+            f.close();
+            return;
+        }
+        // Read root_id and next_block_id
+        uint64_t r, nb;
+        f.read(reinterpret_cast<char *>(&r), sizeof(uint64_t));
+        f.read(reinterpret_cast<char *>(&nb), sizeof(uint64_t));
+        root_id = be64toh(r);
+        next_block_id = be64toh(nb);
+        f.close();
+
+        index_file = filename;
+        cout << "Opened index file " << filename << "." << endl;
     }
 
-    std::string command = argv[1];
-
-    if (command == "create")
+    void insert(uint64_t key, uint64_t value)
     {
-        if (argc < 3)
+        if (index_file.empty())
         {
-            std::cerr << "Error: Missing filename for create command" << std::endl;
-            return 1;
+            cout << "No index file is open." << endl;
+            return;
         }
-
-        std::string filename = argv[2];
-        BTreeManager manager(filename);
-
-        if (!manager.createIndexFile())
+        if (root_id == 0)
         {
-            return 1;
-        }
-
-        std::cout << "Index file created successfully" << std::endl;
-    }
-    else if (command == "insert")
-    {
-        if (argc < 5)
-        {
-            std::cerr << "Error: Missing arguments for insert command" << std::endl;
-            return 1;
-        }
-
-        std::string filename = argv[2];
-        uint64_t key, value;
-
-        try
-        {
-            key = std::stoull(argv[3]);
-            value = std::stoull(argv[4]);
-        }
-        catch (const std::exception &e)
-        {
-            std::cerr << "Error: Invalid key or value format" << std::endl;
-            return 1;
-        }
-
-        BTreeManager manager(filename);
-
-        if (!manager.openIndexFile())
-        {
-            return 1;
-        }
-
-        if (!manager.insert(key, value))
-        {
-            return 1;
-        }
-
-        std::cout << "Key-value pair inserted successfully" << std::endl;
-    }
-    else if (command == "search")
-    {
-        if (argc < 4)
-        {
-            std::cerr << "Error: Missing arguments for search command" << std::endl;
-            return 1;
-        }
-
-        std::string filename = argv[2];
-        uint64_t key;
-
-        try
-        {
-            key = std::stoull(argv[3]);
-        }
-        catch (const std::exception &e)
-        {
-            std::cerr << "Error: Invalid key format" << std::endl;
-            return 1;
-        }
-
-        BTreeManager manager(filename);
-
-        if (!manager.openIndexFile())
-        {
-            return 1;
-        }
-
-        auto [found, value] = manager.search(key);
-
-        if (found)
-        {
-            std::cout << key << " " << value << std::endl;
+            create_root_node(key, value);
         }
         else
         {
-            std::cout << "Key not found" << std::endl;
+            insert_into_node(root_id, key, value);
         }
     }
-    else if (command == "load")
+
+    void create_root_node(uint64_t key, uint64_t value)
     {
-        if (argc < 4)
+        uint64_t node_id = next_block_id++;
+        fstream f(index_file, ios::in | ios::out | ios::binary);
+        if (!f)
         {
-            std::cerr << "Error: Missing arguments for load command" << std::endl;
-            return 1;
+            cout << "Error: Failed to open index file " << index_file << "." << endl;
+            return;
         }
 
-        std::string filename = argv[2];
-        std::string csv_filename = argv[3];
+        // Seek to where the node should be written
+        f.seekp(HEADER_SIZE + (node_id * NODE_SIZE));
 
-        BTreeManager manager(filename);
+        // Write node id, parent id (0 for root), and number of keys (1) in big-endian
+        uint64_t be_node_id = htobe64(node_id);
+        uint64_t be_parent = htobe64((uint64_t)0);
+        uint64_t be_num = htobe64((uint64_t)1);
+        f.write(reinterpret_cast<const char *>(&be_node_id), sizeof(uint64_t));
+        f.write(reinterpret_cast<const char *>(&be_parent), sizeof(uint64_t));
+        f.write(reinterpret_cast<const char *>(&be_num), sizeof(uint64_t));
 
-        if (!manager.openIndexFile())
-        {
-            return 1;
-        }
+        // Write the key
+        uint64_t be_key = htobe64(key);
+        f.write(reinterpret_cast<const char *>(&be_key), sizeof(uint64_t));
 
-        if (!manager.load(csv_filename))
-        {
-            return 1;
-        }
+        // Pad remaining keys
+        int pad_keys = (KEYS_PER_NODE - 1) * sizeof(uint64_t);
+        vector<char> pad(pad_keys, 0);
+        f.write(pad.data(), pad.size());
 
-        std::cout << "Data loaded successfully" << std::endl;
+        // Write the value
+        uint64_t be_value = htobe64(value);
+        f.write(reinterpret_cast<const char *>(&be_value), sizeof(uint64_t));
+
+        // Pad remaining values
+        int pad_values = (VALUES_PER_NODE - 1) * sizeof(uint64_t);
+        vector<char> padVal(pad_values, 0);
+        f.write(padVal.data(), padVal.size());
+
+        // Write two child pointers (left and right) and pad remaining children
+        uint64_t be_zero = htobe64((uint64_t)0);
+        f.write(reinterpret_cast<const char *>(&be_zero), sizeof(uint64_t));
+        f.write(reinterpret_cast<const char *>(&be_zero), sizeof(uint64_t));
+        int pad_children = (CHILDREN_PER_NODE - 2) * sizeof(uint64_t);
+        vector<char> padChild(pad_children, 0);
+        f.write(padChild.data(), padChild.size());
+
+        // Pad the rest of the node so its size is NODE_SIZE
+        streamoff pos = f.tellp();
+        int already = pos - (HEADER_SIZE + (node_id * NODE_SIZE));
+        int remaining = NODE_SIZE - already;
+        vector<char> padNode(remaining, 0);
+        f.write(padNode.data(), padNode.size());
+
+        f.close();
+        root_id = node_id;
+        // Update header with new root/next_block_id values
+        updateHeader();
+        cout << "Root Node created using key: " << key << ", value: " << value << "." << endl;
     }
-    else if (command == "print")
+
+    void insert_into_node(uint64_t node_id, uint64_t key, uint64_t value)
     {
-        if (argc < 3)
+        fstream f(index_file, ios::in | ios::out | ios::binary);
+        if (!f)
         {
-            std::cerr << "Error: Missing filename for print command" << std::endl;
-            return 1;
+            cout << "Error: Failed to open index file " << index_file << "." << endl;
+            return;
         }
 
-        std::string filename = argv[2];
-
-        BTreeManager manager(filename);
-
-        if (!manager.openIndexFile())
+        f.seekg(HEADER_SIZE + (node_id * NODE_SIZE));
+        vector<char> node_data(NODE_SIZE);
+        f.read(node_data.data(), NODE_SIZE);
+        if (f.gcount() < NODE_SIZE)
         {
-            return 1;
+            cout << "Error: Node data is not long enough." << endl;
+            f.close();
+            return;
         }
 
-        manager.print();
+        // Read current number of keys (at offset 16)
+        uint64_t num_keys;
+        memcpy(&num_keys, &node_data[16], sizeof(uint64_t));
+        num_keys = be64toh(num_keys);
+
+        // For simplicity, append the key
+        num_keys++;
+        f.seekp(HEADER_SIZE + (node_id * NODE_SIZE) + 16);
+        uint64_t be_num_keys = htobe64(num_keys);
+        f.write(reinterpret_cast<const char *>(&be_num_keys), sizeof(uint64_t));
+
+        // Write new key at offset 24 + ((num_keys-1) * 8)
+        f.seekp(HEADER_SIZE + (node_id * NODE_SIZE) + 24 + ((num_keys - 1) * sizeof(uint64_t)));
+        uint64_t be_key = htobe64(key);
+        f.write(reinterpret_cast<const char *>(&be_key), sizeof(uint64_t));
+
+        // Write new value at offset 176 + ((num_keys-1) * 8)
+        f.seekp(HEADER_SIZE + (node_id * NODE_SIZE) + 176 + ((num_keys - 1) * sizeof(uint64_t)));
+        uint64_t be_value = htobe64(value);
+        f.write(reinterpret_cast<const char *>(&be_value), sizeof(uint64_t));
+
+        f.close();
+        cout << "Inserted key: " << key << ", value: " << value << " in node " << node_id << "." << endl;
+        updateHeader();
     }
-    else if (command == "extract")
+
+    // Search for a key in the index file
+    void search(uint64_t search_key)
     {
-        if (argc < 4)
+        if (index_file.empty())
         {
-            std::cerr << "Error: Missing arguments for extract command" << std::endl;
-            return 1;
+            cout << "Error: No index file is open." << endl;
+            return;
         }
-
-        std::string filename = argv[2];
-        std::string output_filename = argv[3];
-
-        // Check if output file already exists
-        std::ifstream check_file(output_filename);
-        if (check_file)
+        ifstream f(index_file, ios::binary);
+        if (!f)
         {
-            std::cerr << "Error: Output file already exists" << std::endl;
-            check_file.close();
-            return 1;
+            cout << "Error: Failed to open index file." << endl;
+            return;
         }
-
-        BTreeManager manager(filename);
-
-        if (!manager.openIndexFile())
+        // Validate magic number
+        char magic_buffer[MAGIC_NUMBER.size()];
+        f.read(magic_buffer, MAGIC_NUMBER.size());
+        if (std::string(magic_buffer, MAGIC_NUMBER.size()) != MAGIC_NUMBER)
         {
-            return 1;
+            cout << "Error: Invalid index file." << endl;
+            f.close();
+            return;
         }
+        // Read header: root_id and next_block_id
+        uint64_t file_root_id, file_next_block_id;
+        f.read(reinterpret_cast<char *>(&file_root_id), sizeof(uint64_t));
+        f.read(reinterpret_cast<char *>(&file_next_block_id), sizeof(uint64_t));
+        file_root_id = be64toh(file_root_id);
+        file_next_block_id = be64toh(file_next_block_id);
 
-        if (!manager.extract(output_filename))
+        bool found = false;
+        // Iterate over nodes in the file
+        for (uint64_t node_id = 1; node_id < file_next_block_id; node_id++)
         {
-            return 1;
+            f.seekg(HEADER_SIZE + (node_id * NODE_SIZE), ios::beg);
+            vector<char> node_data(NODE_SIZE);
+            f.read(node_data.data(), NODE_SIZE);
+            if (f.gcount() < NODE_SIZE)
+                continue;
+            uint64_t num_keys;
+            memcpy(&num_keys, &node_data[16], sizeof(uint64_t));
+            num_keys = be64toh(num_keys);
+            for (uint64_t i = 0; i < num_keys; i++)
+            {
+                uint64_t curr_key;
+                memcpy(&curr_key, &node_data[24 + i * sizeof(uint64_t)], sizeof(uint64_t));
+                curr_key = be64toh(curr_key);
+                if (curr_key == search_key)
+                {
+                    uint64_t value;
+                    memcpy(&value, &node_data[176 + i * sizeof(uint64_t)], sizeof(uint64_t));
+                    value = be64toh(value);
+                    cout << "Found key: " << curr_key << ", value: " << value << "." << endl;
+                    found = true;
+                    break;
+                }
+            }
+            if (found)
+                break;
         }
-
-        std::cout << "Data extracted successfully" << std::endl;
+        if (!found)
+        {
+            cout << "Key " << search_key << " was not found in index." << endl;
+        }
+        f.close();
     }
-    else
+
+    void load(const std::string &filename)
     {
-        std::cerr << "Error: Unknown command" << std::endl;
-        return 1;
+        if (index_file.empty())
+        {
+            cout << "Error: No index file is open." << endl;
+            return;
+        }
+        cout << "Loading key, value pairs from " << filename << "..." << endl;
+        ifstream f(filename);
+        if (!f)
+        {
+            cout << "Error: File " << filename << " does not exist." << endl;
+            return;
+        }
+        string line;
+        while (getline(f, line))
+        {
+            istringstream iss(line);
+            string keyStr, valueStr;
+            if (getline(iss, keyStr, ',') && getline(iss, valueStr))
+            {
+                uint64_t key = stoull(keyStr);
+                uint64_t value = stoull(valueStr);
+                insert(key, value);
+                cout << "  Loaded Key: " << key << ", value: " << value << "." << endl;
+            }
+        }
+        f.close();
+        cout << "Completed loading from " << filename << "." << endl;
     }
 
+    void print_index()
+    {
+        if (index_file.empty())
+        {
+            cout << "Error: No index file is open." << endl;
+            return;
+        }
+        if (root_id == 0)
+        {
+            cout << "Index is empty." << endl;
+            return;
+        }
+        ifstream f(index_file, ios::binary);
+        if (!f)
+        {
+            cout << "Error: Failed to open index file." << endl;
+            return;
+        }
+        cout << "Index file contents: " << endl;
+        // Skip header
+        f.seekg(HEADER_SIZE, ios::beg);
+        // For each node (node ids start at 1)
+        for (uint64_t node_id = 1; node_id < next_block_id; node_id++)
+        {
+            f.seekg(HEADER_SIZE + (node_id * NODE_SIZE), ios::beg);
+            vector<char> node_data(NODE_SIZE);
+            f.read(node_data.data(), NODE_SIZE);
+            if (f.gcount() < NODE_SIZE)
+                continue;
+            uint64_t num_keys;
+            memcpy(&num_keys, &node_data[16], sizeof(uint64_t));
+            num_keys = be64toh(num_keys);
+            if (num_keys == 0)
+                continue;
+            cout << "Node " << node_id << ", keys: " << num_keys << endl;
+            for (uint64_t i = 0; i < num_keys; i++)
+            {
+                uint64_t key;
+                memcpy(&key, &node_data[24 + i * sizeof(uint64_t)], sizeof(uint64_t));
+                key = be64toh(key);
+                uint64_t value;
+                memcpy(&value, &node_data[176 + i * sizeof(uint64_t)], sizeof(uint64_t));
+                value = be64toh(value);
+                cout << "  Key: " << key << ", value: " << value << endl;
+            }
+        }
+        f.close();
+    }
+
+    void extract(const std::string &filename)
+    {
+        if (index_file.empty())
+        {
+            cout << "Error: No index file is open." << endl;
+            return;
+        }
+        if (root_id == 0)
+        {
+            ofstream out(filename);
+            out.close();
+            cout << "Extracted key, value pairs to " << filename << "." << endl;
+            return;
+        }
+        ifstream f(index_file, ios::binary);
+        if (!f)
+        {
+            cout << "Error: Failed to open index file." << endl;
+            return;
+        }
+        ofstream out(filename);
+        if (!out)
+        {
+            cout << "Error: Failed to create output file." << filename << "." << endl;
+            return;
+        }
+        // Skip header
+        f.seekg(HEADER_SIZE, ios::beg);
+        // For each node
+        for (uint64_t node_id = 1; node_id < next_block_id; node_id++)
+        {
+            f.seekg(HEADER_SIZE + (node_id * NODE_SIZE), ios::beg);
+            vector<char> node_data(NODE_SIZE);
+            f.read(node_data.data(), NODE_SIZE);
+            if (f.gcount() < NODE_SIZE)
+                continue;
+            uint64_t num_keys;
+            memcpy(&num_keys, &node_data[16], sizeof(uint64_t));
+            num_keys = be64toh(num_keys);
+            for (uint64_t i = 0; i < num_keys; i++)
+            {
+                uint64_t key;
+                memcpy(&key, &node_data[24 + i * sizeof(uint64_t)], sizeof(uint64_t));
+                key = be64toh(key);
+                uint64_t value;
+                memcpy(&value, &node_data[176 + i * sizeof(uint64_t)], sizeof(uint64_t));
+                value = be64toh(value);
+                out << key << "," << value << "\n";
+            }
+        }
+        f.close();
+        out.close();
+        cout << "Completed extracting key, value pairs to " << filename << "." << endl;
+    }
+
+    void quit()
+    {
+        cout << "Quiting program." << endl;
+    }
+
+private:
+    // Update header information in the index file (root_id and next_block_id)
+    void updateHeader()
+    {
+        fstream f(index_file, ios::in | ios::out | ios::binary);
+        if (!f)
+            return;
+        // Skip magic number
+        f.seekp(MAGIC_NUMBER.size());
+        uint64_t be_root = htobe64(root_id);
+        uint64_t be_next = htobe64(next_block_id);
+        f.write(reinterpret_cast<const char *>(&be_root), sizeof(uint64_t));
+        f.write(reinterpret_cast<const char *>(&be_next), sizeof(uint64_t));
+        f.close();
+    }
+};
+
+int main()
+{
+    BTree btree;
+    string inputLine;
+    while (true)
+    {
+        // Display menu options
+        cout << "\nMenu Commands:" << endl;
+        cout << "1 - [create <index file name>] Create new index file. " << endl;
+        cout << "2 - [insert <index file name> <uint key> <uint val>] Insert key, value pair." << endl;
+        cout << "3 - [search <index file name> <uint key>] Search key." << endl;
+        cout << "4 - [load <index file name> <csv file name>] Load key, value pairs from file." << endl;
+        cout << "5 - [print <index file name>] Print key, value pairs." << endl;
+        cout << "6 - [extract <index file name> <csv file name>] Extract key, value pairs to file." << endl;
+        cout << "\nEnter command: ";
+        getline(cin, inputLine);
+        istringstream iss(inputLine);
+        vector<string> tokens;
+        string token;
+        while (iss >> token)
+        {
+            tokens.push_back(token);
+        }
+        if (tokens.empty())
+        {
+            continue;
+        }
+        // Convert command token to lowercase
+        string cmd = tokens[0];
+        transform(cmd.begin(), cmd.end(), cmd.begin(), ::tolower);
+
+        if (cmd == "create")
+        {
+            if (tokens.size() != 2)
+            {
+                cout << "Usage: create <index file name>" << endl;
+                continue;
+            }
+            btree.create(tokens[1]);
+        }
+        else if (cmd == "insert")
+        {
+            if (tokens.size() != 4)
+            {
+                cout << "Usage: insert <index file name> <uint key> <uint val>" << endl;
+                continue;
+            }
+            btree.open(tokens[1]);
+            uint64_t key = stoull(tokens[2]);
+            uint64_t value = stoull(tokens[3]);
+            btree.insert(key, value);
+        }
+        else if (cmd == "search")
+        {
+            if (tokens.size() != 3)
+            {
+                cout << "Usage: search <index file name> <uint key>" << endl;
+                continue;
+            }
+            btree.open(tokens[1]);
+            uint64_t key = stoull(tokens[2]);
+            btree.search(key);
+        }
+        else if (cmd == "load")
+        {
+            if (tokens.size() != 3)
+            {
+                cout << "Usage: load <index file name> <csv file name>" << endl;
+                continue;
+            }
+            btree.open(tokens[1]);
+            btree.load(tokens[2]);
+        }
+        else if (cmd == "print")
+        {
+            if (tokens.size() != 2)
+            {
+                cout << "Usage: print <index file name>" << endl;
+                continue;
+            }
+            btree.open(tokens[1]);
+            btree.print_index();
+        }
+        else if (cmd == "extract")
+        {
+            if (tokens.size() != 3)
+            {
+                cout << "Usage: extract <index file name> <csv file name>" << endl;
+                continue;
+            }
+            btree.open(tokens[1]);
+            btree.extract(tokens[2]);
+        }
+        else if (cmd == "quit")
+        {
+            btree.quit();
+            break;
+        }
+        else
+        {
+            cout << "Invalid command." << endl;
+        }
+    }
     return 0;
 }
