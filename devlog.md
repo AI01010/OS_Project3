@@ -53,3 +53,6 @@ added user interface with all 6 commands, fixed csv issue
 got it to run on wsl
 
 ## 05.11.2025 18:30 CodingSession::END
+
+NOTES: fix code logic to follow project guidelines and make it take terminal inputs instead
+remove ui menu, ui is not needed 
