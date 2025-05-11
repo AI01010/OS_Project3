@@ -6,5 +6,5 @@ B-tree code:
 btree.cpp
 
 To compile and run:
-g++ main.cpp -std=c++11 -o main
-./main
+g++ btree.cpp -std=c++11 -o brree
+./btree

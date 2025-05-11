@@ -35,4 +35,10 @@ updates to code, impliment big endian check code
 
 NOTES: fix logic
 
+## 05.11.2025 09:45 CodingSession::BEGIN
+
+updates to code, enhanced error handling, 
+fixed insertion and spliting logic 
+
+## 05.11.2025 16:29 CodingSession::END
 
