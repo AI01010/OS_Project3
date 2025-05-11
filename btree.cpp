@@ -19,6 +19,7 @@
 #include <cstring>
 #include <cstdint>
 #include <cstdlib>
+#include <endian.h>  // For htobe64 and be64toh
 #include <stdint.h>
 #include <sstream>
 #include <algorithm>
