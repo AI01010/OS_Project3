@@ -42,3 +42,4 @@ fixed insertion and spliting logic
 
 ## 05.11.2025 16:29 CodingSession::END
 
+NOTES: updated README.md
