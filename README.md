@@ -5,6 +5,8 @@ Operating Systems Project 3
 B-tree code: 
 btree.cpp
 
-To compile and run:
-g++ btree.cpp -std=c++11 -o brree
+To compile (use linux server: WSL (w/ Ubuntu), PuTTY, MobaXterm, etc.):
+g++ btree.cpp -std=c++11 -o btree
+
+To run:
 ./btree
