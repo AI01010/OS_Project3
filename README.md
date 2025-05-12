@@ -11,7 +11,7 @@ Code:
 project3.cpp
 
 To compile (use linux server: WSL (w/ Ubuntu), PuTTY, MobaXterm, etc.):
-g++ project3.cpp -std=c++11 -o project3
+g++ project3.cpp -o project3
 (OR 
  g++ project3.cpp -std=c++11 -o project3 
  if needed

@@ -68,3 +68,5 @@ rm ui + quit cmd
 update README.md to reflect changes
 
 ## 05.11.2025 22:30 CodingSession::END
+
+NOTES: fix readme and header comment

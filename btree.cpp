@@ -4,12 +4,13 @@
  * OS Project 3
  * 
  * B-Tree implementation in C++
- * Interactive program that creates and manages index files: create, insert, and search operations.
+ * Interactive program that creates and manages index files: 
+ * create, insert, search, load, print, and extract operations
  *
- * B-Tree properties (for minimum degree t):
- * 1. Every node has at most 2t - 1 keys and at least t - 1 keys.
- * 2. Every internal node (except root) has at least t children.
- * 3. All leaves are at the same level.
+ * To compile and run: 
+ * g++ project3.cpp -o project3
+ * ./project3 <command> <fname> ( <key> | <key> <value> | <intput.csv> | <output.csv> )
+ * 
  */
 
 #include <iostream>
@@ -311,7 +312,7 @@ int main(int argc, char* argv[])
 {
     // take command line arguments
     // check if the arguments are valid
-    
+
     if (argc < 2)
     {
         std::cerr << "Invalid command" << std::endl;
