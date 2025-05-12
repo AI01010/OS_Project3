@@ -23,10 +23,8 @@ To run:
 
 Summary of Commands:
  - [create <index file name>]                           Create new index file.
- - [insert <index file name> <uint key> <uint value>]     Insert key, value pair.
+ - [insert <index file name> <uint key> <uint value>]   Insert key, value pair.
  - [search <index file name> <uint key>]                Search key.
- - [load <index file name> <csv infile name>]             Load key, value pairs from file.
+ - [load <index file name> <csv infile name>]           Load key, value pairs from file.
  - [print <index file name>]                            Print key, value pairs.
- - [extract <index file name> <csv outfile name>]          Extract key, value pairs to file.
-
- - "crtl + c" | "^C" - to quit
+ - [extract <index file name> <csv outfile name>]       Extract key, value pairs to file.
