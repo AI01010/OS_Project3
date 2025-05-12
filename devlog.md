@@ -56,3 +56,15 @@ got it to run on wsl
 
 NOTES: fix code logic to follow project guidelines and make it take terminal inputs instead
 remove ui menu, ui is not needed 
+
+## 05.11.2025 18:54 CodingSession::BEGIN
+
+updates to code: over hauled code again to remove UI and take terminal input
+adheres to project guidelines and takes in input as specified
+fixed big endian logic code functions
+fixed empty/null index file issues
+change program file name from "btree.cpp" to "project3.cpp"
+rm ui + quit cmd
+update README.md to reflect changes
+
+## 05.11.2025 20:09 CodingSession::END
