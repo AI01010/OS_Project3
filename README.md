@@ -7,19 +7,20 @@ B-Tree implementation in C++
  - The user can create, insert, and search such index files.
  - They can also load and extract index files to and from csv files
 
-Code: 
-project3.cpp
+Source Code: 
+- project3.cpp
 
-To compile (use linux server: WSL (w/ Ubuntu), PuTTY, MobaXterm, etc.):
-g++ project3.cpp -o project3
+Use a linux server: WSL (w/ Ubuntu), cslinux1.utdallas.edu server (via PuTTY, MobaXterm, etc.), etc.
+
+To compile:
+- g++ project3.cpp -o project3
 (OR 
- g++ project3.cpp -std=c++11 -o project3 
- if needed
+ - g++ project3.cpp -std=c++11 -o project3 
+ if needed [on MobaXterm]
 )
 
 To run:
 ./project3 <command> <fname> ( <key> | <key> <value> | <intput.csv> | <output.csv> )
-
 
 Summary of Commands:
  - [create <index file name>]                           Create new index file.
